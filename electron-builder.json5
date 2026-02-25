@@ -1,9 +1,9 @@
 // @see - https://www.electron.build/configuration/configuration
 {
   $schema: 'https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json',
-  appId: 'Pautakan2025',
+  appId: 'Pautakan 2026',
   asar: true,
-  productName: 'Pautakan 2025',
+  productName: 'Pautakan2026',
   directories: {
     output: 'release/${version}',
   },
