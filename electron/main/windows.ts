@@ -27,7 +27,6 @@ export function createWindows(): AppWindows {
   const techWindowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1000,
     height: 1080,
-    resizable: false,
     useContentSize: true,
     webPreferences: {
       preload: path.join(MAIN_DIST, 'preload.mjs'),

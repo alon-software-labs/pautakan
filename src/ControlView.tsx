@@ -1,11 +1,36 @@
 import './App.css';
-import { useEffect, useState } from 'react';
+import { DragEvent, useEffect, useState } from 'react';
 import { College } from './types';
 
-const buttonStyles = `shrink p-[1%] bg-white hover:bg-gray-200 cursor-pointer m-[1%] rounded-xl border-2 border-gray-300 font-semibold text-gray-700 shadow-sm disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-white h-14 flex items-center justify-center`;
+const rankLabels = ['1st', '2nd', '3rd', '4th', '5th'] as const;
+
+function getRankLabelForIndex(index: number): string {
+  return rankLabels[index] ?? '1st';
+}
+
+function getRankNumericValue(rank: string): number {
+  switch (rank) {
+    case '1st':
+      return 1;
+    case '2nd':
+      return 2;
+    case '3rd':
+      return 3;
+    case '4th':
+      return 4;
+    case '5th':
+      return 5;
+    default:
+      return 999;
+  }
+}
+
+const buttonStyles =
+  'inline-flex items-center justify-center rounded border border-gray-400 bg-white px-3 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50';
 export default function ControlView() {
   const [colleges, setColleges] = useState<College[]>([]);
-  const [inCollegeSelectionMode, setInCollegeSelectionMode] = useState(false);
+  // Clincher selection mode UI has been simplified away.
+  const [, setInCollegeSelectionMode] = useState(false);
   const [difficulty, setDifficulty] = useState('Easy');
   const [category, setCategory] = useState('Eliminations');
   const [division, setDivision] = useState('Teams');
@@ -14,56 +39,22 @@ export default function ControlView() {
   const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [inClincherRound, setInClincherRound] = useState(false);
-  // Add state for tracking college rankings
-  const [collegeRankings, setCollegeRankings] = useState<{[key: string]: string}>({});
-  // Add state to track selected colleges for leaderboard
-  const [selectedColleges, setSelectedColleges] = useState<{[key: string]: boolean}>({});
+  // Add state for tracking college rankings (collegeId -> rank string like "1st")
+  const [collegeRankings, setCollegeRankings] = useState<{ [key: string]: string }>({});
+  // Add state to track selected colleges (used for clincher / Finals selection)
+  const [selectedColleges, setSelectedColleges] = useState<{ [key: string]: boolean }>({});
   // Error message for leaderboard validation
   const [leaderboardError, setLeaderboardError] = useState('');
   // Add state for category errors
   const [categoryError, setCategoryError] = useState('');
   
-  // Function to handle rank selection
-  const handleRankChange = (collegeId: string, rank: string) => {
-    // Create a copy of the current rankings
-    const updatedRankings = { ...collegeRankings };
-    
-    // If this rank is already assigned to another college, clear that assignment
-    Object.keys(updatedRankings).forEach(id => {
-      if (updatedRankings[id] === rank) {
-        delete updatedRankings[id];
-      }
-    });
-    
-    // Assign the new rank
-    updatedRankings[collegeId] = rank;
-    
-    // Update the state
-    setCollegeRankings(updatedRankings);
-    
-    console.log(`College ID ${collegeId} ranked as ${rank}`);
+  const handleCollegeDragStart = (event: DragEvent<HTMLDivElement>, collegeId: string) => {
+    event.dataTransfer.setData('text/plain', collegeId);
+    // Use move effect so browsers show a drag indicator instead of copy.
+    event.dataTransfer.effectAllowed = 'move';
   };
 
-  // Function to handle college selection via checkbox
-  const handleCollegeSelection = (collegeId: string, isSelected: boolean) => {
-    // Create a copy of the current selections
-    const updatedSelections = { ...selectedColleges };
-    
-    // Update the selection state
-    updatedSelections[collegeId] = isSelected;
-    
-    // If unselecting a college, also remove its ranking
-    if (!isSelected && collegeRankings[collegeId]) {
-      const updatedRankings = { ...collegeRankings };
-      delete updatedRankings[collegeId];
-      setCollegeRankings(updatedRankings);
-    }
-    
-    // Update the state
-    setSelectedColleges(updatedSelections);
-    
-    console.log(`College ID ${collegeId} selection: ${isSelected}`);
-  };
+  // College selection for clincher / Finals flows is currently not surfaced in the UI.
 
   // Load colleges - fetch fresh data from main process
   const fetchColleges = async () => {
@@ -90,54 +81,78 @@ export default function ControlView() {
   };
 
 
-  // Function to validate leaderboard requirements
-  function validateLeaderboardRequirements() {
-  // Get selected colleges from the currently displayed colleges
-  const selectedCollegeIds = Object.keys(selectedColleges).filter(id => selectedColleges[id]);
-  
-  // Filter to only include colleges that are currently displayed
-  const displayedSelectedIds = displayedColleges
-    .filter(college => selectedCollegeIds.includes(String(college.id)))
-    .map(college => String(college.id));
-  
-  // Check if we have the required number of colleges
-  const requiredCount = category === 'Finals' ? 3 : 5;
-  if (displayedSelectedIds.length !== requiredCount) {
-    return `You must select exactly ${requiredCount} colleges from the current display for ${category} mode leaderboard.`;
-  }
-  
-  // Check if all selected colleges have ranks
-  const unrankedColleges = displayedSelectedIds.filter(id => !collegeRankings[id]);
-  
-  if (unrankedColleges.length > 0) {
-    return `All selected colleges must have a rank assigned.`;
-  }
-  
-  // Check if all required ranks are used
-  const maxRank = category === 'Finals' ? 3 : 5;
-  const usedRanks = new Set();
-  
-  // Collect all used ranks from currently displayed and selected colleges
-  displayedSelectedIds.forEach(id => {
-    const rank = collegeRankings[id];
-    if (rank) usedRanks.add(rank);
-  });
-  
-  for (let i = 1; i <= maxRank; i++) {
-    const rankValue = i === 1 ? '1st' : i === 2 ? '2nd' : i === 3 ? '3rd' : i === 4 ? '4th' : '5th';
-    if (!usedRanks.has(rankValue)) {
-      return `Rank "${rankValue}" must be assigned to a college.`;
-    }
-  }
-  
-  if (usedRanks.size !== maxRank) {
-    return `All ranks from 1st to ${maxRank === 3 ? '3rd' : '5th'} must be used exactly once.`;
-  }
-  
-  return ''; // No error
-}
+  const handleBarDrop = (targetRankIndex: number, collegeId: string) => {
+    const rankLabel = getRankLabelForIndex(targetRankIndex);
 
-const toggleLeaderboard = async () => {
+    setCollegeRankings((current) => {
+      const next: { [key: string]: string } = { ...current };
+
+      // Remove any previous rank assignment for this college.
+      delete next[collegeId];
+
+      // Ensure only one college occupies this rank.
+      Object.keys(next).forEach((id) => {
+        if (next[id] === rankLabel) {
+          delete next[id];
+        }
+      });
+
+      next[collegeId] = rankLabel;
+      return next;
+    });
+  };
+
+  // Function to validate leaderboard requirements based on ranked colleges
+  function validateLeaderboardRequirements() {
+    const rankedCollegeIds = Object.keys(collegeRankings);
+
+    // Consider only ranked colleges that are currently displayed.
+    const displayedRankedIds = displayedColleges
+      .map((college) => String(college.id))
+      .filter((id) => rankedCollegeIds.includes(id));
+
+    // Check if we have the required number of colleges
+    const requiredCount = category === 'Finals' ? 3 : 5;
+    if (displayedRankedIds.length !== requiredCount) {
+      return `You must place exactly ${requiredCount} colleges into the leaderboard bars for ${category} mode.`;
+    }
+
+    // Check if all required ranks are used
+    const maxRank = category === 'Finals' ? 3 : 5;
+    const usedRanks = new Set<string>();
+
+    // Collect all used ranks from currently displayed and ranked colleges
+    displayedRankedIds.forEach((id) => {
+      const rank = collegeRankings[id];
+      if (rank) usedRanks.add(rank);
+    });
+
+    for (let i = 1; i <= maxRank; i++) {
+      const rankValue =
+        i === 1
+          ? '1st'
+          : i === 2
+          ? '2nd'
+          : i === 3
+          ? '3rd'
+          : i === 4
+          ? '4th'
+          : '5th';
+      if (!usedRanks.has(rankValue)) {
+        return `Rank "${rankValue}" must be assigned to a college.`;
+      }
+    }
+
+    if (usedRanks.size !== maxRank) {
+      return `All ranks from 1st to ${
+        maxRank === 3 ? '3rd' : '5th'
+      } must be used exactly once.`;
+    }
+
+    return ''; // No error
+  }
+
+  const toggleLeaderboard = async () => {
   if (showLeaderboard) {
 
     setShowLeaderboard(false);
@@ -157,33 +172,19 @@ const toggleLeaderboard = async () => {
     
     // Clear any previous errors
     setLeaderboardError('');
-    
-    // Get selected colleges from the currently displayed colleges
-    const selectedCollegeIds = Object.keys(selectedColleges).filter(id => selectedColleges[id]);
-    
-    // Only use colleges that are currently displayed
-    const selectedCollegesList = displayedColleges.filter(college => 
-      selectedCollegeIds.includes(String(college.id))
-    );
-    
+
+    // Only use colleges that are currently displayed and have a rank assigned
+    const rankedColleges = displayedColleges.filter((college) => {
+      const id = String(college.id);
+      return Boolean(collegeRankings[id]);
+    });
+
     // Sort by their manual rankings
-    const sortedSelectedColleges = [...selectedCollegesList].sort((a, b) => {
+    const sortedSelectedColleges = [...rankedColleges].sort((a, b) => {
       const rankA = collegeRankings[String(a.id)] || '';
       const rankB = collegeRankings[String(b.id)] || '';
-      
-      // Map ranks to numeric values for sorting
-      const getRankValue = (rank: string) => {
-        switch (rank) {
-          case '1st': return 1;
-          case '2nd': return 2;
-          case '3rd': return 3;
-          case '4th': return 4;
-          case '5th': return 5;
-          default: return 999;
-        }
-      };
-      
-      return getRankValue(rankA) - getRankValue(rankB);
+
+      return getRankNumericValue(rankA) - getRankNumericValue(rankB);
     });
     
     setShowLeaderboard(true);
@@ -411,56 +412,7 @@ useEffect(() => {
     console.log('Application refreshed');
   }
 
-  // Function to confirm clincher college selection
-  async function confirmClincherCollegeSelection() {
-    // Get all selected colleges
-    const selectedCollegeIds = Object.keys(selectedColleges).filter(id => selectedColleges[id]);
-    
-    if (selectedCollegeIds.length === 0) {
-      alert('Please select at least one college for the clincher round.');
-      return;
-    }
-    
-    // Filter displayed colleges to only show the selected ones
-    const selectedClincherColleges = displayedColleges.filter(college => 
-      selectedCollegeIds.includes(String(college.id))
-    );
-    
-    // Exit selection mode
-    setInCollegeSelectionMode(false);
-    
-    // Enter clincher mode with selected colleges
-    setInClincherRound(true);
-    
-    // Update displayed colleges to only show selected ones
-    setDisplayedColleges(selectedClincherColleges);
-    
-    // Pass the selected difficulty and colleges to the main process
-    await window.ipcRenderer.invoke('sync-difficulty', difficulty, selectedClincherColleges);
-    
-    console.log(
-      `Started ${difficulty} round with selected colleges:`,
-      selectedClincherColleges.map((c) => c.shorthand).join(', ')
-    );
-  }
-
-  // Function to go back to college selection for clincher/sudden death
-  const reSelectColleges = async () => {
-    // Clear current selections
-    setSelectedColleges({});
-    
-    // Enable college selection mode
-    setInCollegeSelectionMode(true);
-    
-    // Reset clincher mode
-    setInClincherRound(false);
-    
-    // Refresh the college list to show all colleges
-    const allColleges = await fetchColleges();
-    setDisplayedColleges(allColleges);
-    
-    console.log(`Re-entered college selection mode for ${difficulty} round`);
-  };
+  // Clincher selection helpers are currently unused by the simplified UI.
 
   // Modified handleSwitchToClincher function to accept a difficulty parameter
   async function handleSwitchToClincher(selectedDifficulty = 'Clincher') {
@@ -512,53 +464,36 @@ useEffect(() => {
     };
   }, [category]); // Re-apply when category changes
 
-  // Get the appropriate rank options based on the current category
-  const getRankOptions = () => {
-    if (category === 'Finals') {
-      return [
-        { value: '', label: 'Rank' },
-        { value: '1st', label: '1st' },
-        { value: '2nd', label: '2nd' },
-        { value: '3rd', label: '3rd' }
-      ];
-    } else {
-      return [
-        { value: '', label: 'Rank' },
-        { value: '1st', label: '1st' },
-        { value: '2nd', label: '2nd' },
-        { value: '3rd', label: '3rd' },
-        { value: '4th', label: '4th' },
-        { value: '5th', label: '5th' }
-      ];
-    }
-  };
+  const maxPreviewRank = category === 'Finals' ? 3 : 5;
 
   return (
     <div
-      className='bg-[#232333] absolute top-0 left-0 min-h-full w-full justify-start items-center flex flex-col'
-      style={{ width: '100%', height: '100%', overflow: 'auto' }}
+      className="flex w-full bg-white text-gray-900"
+      style={{ height: '100vh', overflowY: 'auto' }}
     >
+      <div className="min-h-screen w-full">
       {/* Confirmation Dialog for Reset */}
       {showResetConfirm && (
-        <div className='fixed inset-0 bg-transparent z-50 flex items-center justify-center'>
-          <div className='absolute inset-0 bg-gray-900 opacity-40'></div>
-          <div className='bg-white p-6 rounded-xl shadow-lg max-w-md z-10'>
-            <h2 className='text-xl font-bold mb-4'>Confirm Reset</h2>
-            <p className='mb-6'>
-              Are you sure you want to reset all scores to 0?
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="relative z-10 max-w-md rounded border border-gray-300 bg-white p-6 shadow-lg">
+            <h2 className="mb-3 text-lg font-semibold tracking-tight text-gray-900">
+              Reset all scores?
+            </h2>
+            <p className="mb-6 text-sm text-gray-700">
+              This will set every college score back to 0 and clear selections and rankings.
             </p>
-            <div className='flex justify-center space-x-4'>
+            <div className="flex justify-end gap-3 text-sm">
               <button
-                className='px-4 py-2 bg-gray-300 rounded-lg hover:bg-gray-400'
+                className="rounded border border-gray-400 bg-white px-4 py-2 font-medium text-gray-800 hover:bg-gray-100"
                 onClick={handleCancelDialog}
               >
                 Cancel
               </button>
               <button
-                className='px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600'
+                className="rounded bg-red-500 px-4 py-2 font-semibold text-white hover:bg-red-600"
                 onClick={handleConfirmReset}
               >
-                Yes, Reset Scores
+                Yes, reset scores
               </button>
             </div>
           </div>
@@ -567,226 +502,356 @@ useEffect(() => {
 
       {/* Confirmation Dialog for Refresh */}
       {showRefreshConfirm && (
-        <div className='fixed inset-0 bg-transparent z-50 flex items-center justify-center'>
-          <div className='absolute inset-0 bg-gray-900 opacity-40'></div>
-          <div className='bg-white p-6 rounded-xl shadow-lg max-w-md z-10'>
-            <h2 className='text-xl font-bold mb-4'>Confirm Refresh</h2>
-            <p className='mb-6'>
-              Are you sure you want to refresh the application?
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="relative z-10 max-w-md rounded border border-gray-300 bg-white p-6 shadow-lg">
+            <h2 className="mb-3 text-lg font-semibold tracking-tight text-gray-900">
+              Refresh application?
+            </h2>
+            <p className="mb-6 text-sm text-gray-700">
+              The control view and display will be refreshed using the latest data from the main
+              process.
             </p>
-            <div className='flex justify-center space-x-4'>
+            <div className="flex justify-end gap-3 text-sm">
               <button
-                className='px-4 py-2 bg-gray-300 rounded-lg hover:bg-gray-400'
+                className="rounded border border-gray-400 bg-white px-4 py-2 font-medium text-gray-800 hover:bg-gray-100"
                 onClick={handleCancelDialog}
               >
                 Cancel
               </button>
               <button
-                className='px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600'
+                className="rounded bg-blue-500 px-4 py-2 font-semibold text-white hover:bg-blue-600"
                 onClick={handleConfirmRefresh}
               >
-                Yes, Refresh
+                Yes, refresh
               </button>
             </div>
           </div>
         </div>
       )}
 
-      <div className='w-full flex flex-col p-[1%] bg-red-400'>
-        <h1 className='text-6xl font-bold text-center text-white font-[Nitro-Nova] drop-shadow-[0_0_0.05em_white]'>
-          PAUTAKAN 2025
-        </h1>
-        <h1 className='text-4xl font-bold text-center text-white font-[Nitro-Nova] drop-shadow-[0_0_0.05em_white]'>
-          Control View
-        </h1>
-        <div className='flex flex-row items-center justify-between'>
-          <div className='flex flex-row w-4/9 items-center justify-evenly ml-4'>
-            <Dropdown
-              options={[
-                { value: 'Eliminations' },
-                { value: 'Finals' },
-              ]}
-              preventChange={Object.keys(selectedColleges).length === 0}
-              onChange={(selected) => {
-                if (selected === 'Finals') {
-                  // When changing TO Finals mode
-                  const selectedCollegeIds = Object.keys(selectedColleges).filter(id => selectedColleges[id]);
-                  
-                  if (selectedCollegeIds.length === 0) {
-                    // No colleges selected, show notification
-                    setCategoryError('You must select colleges using the checkboxes before switching to Finals mode.');
-                    alert('You must select colleges using the checkboxes before switching to Finals mode.');
-
-                    return; // Don't change category
-                  }
-                  
-                  // Clear any previous errors
-                  setCategoryError('');
-                  
-                  // Set the category (we'll handle the college filtering in the useEffect)
-                  setCategory(selected);
-                  setDifficulty('Easy');
-                } 
-                else if (selected === 'Eliminations') {
-                  // When changing FROM Finals TO Eliminations mode
-                  // Set the category first (the useEffect will handle displaying all colleges)
-                  setCategory(selected);
-                  setDifficulty('Easy');
-                  
-                  // Clear any previous errors
-                  setCategoryError('');
-                }
-              }}
-              key={category}
-              initialValue={category}
-            />
-            <Dropdown
-              options={[
-                { value: 'Easy' },
-                { value: 'Average' },
-                { value: 'Difficult' },
-                { value: 'Clincher' },
-                { value: 'Sudden Death' },
-              ]}
-              onChange={(selected) => {
-                if (selected === 'Clincher' || selected === 'Sudden Death') {
-                  // Pass the selected difficulty to handleSwitchToClincher
-                  handleSwitchToClincher(selected);
-                } else {
-                  exitClincherRound(selected);
-                  setDifficulty(selected);
-                }
-              }}
-              key={difficulty}
-              initialValue={difficulty}
-            />
-            <Dropdown
-              options={[{ value: 'Individual' }, { value: 'Teams' }]}
-              onChange={async (selected) => {
-                setDivision(selected);
-                setDifficulty('Easy');
-                setCategory('Eliminations');
-                await performResetScores();
-              }}
-              initialValue={division}
-            />
-          </div>
-          <div className='grid grid-cols-3 w-4/9 mr-4 gap-2'>
-            <button className={buttonStyles} onClick={handleResetClick}>
-              Reset Scores
-            </button>
-            <button className={buttonStyles} onClick={handleRefreshClick}>
-              Refresh
-            </button>
-            <button
-              className={buttonStyles}
-              onClick={toggleLeaderboard}
-            >
-              {showLeaderboard ? 'Close Leaderboard' : 'Toggle Leaderboard'}
-            </button>
-          </div>
+      {/* Header */}
+      <header className="border-b border-gray-200 bg-white">
+        <div className="mx-auto flex max-w-6xl flex-col gap-1 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-500">
+            Pautakan 2025
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-gray-900 md:text-3xl">
+            Control View
+          </h1>
+          <p className="mt-1 text-xs text-gray-600 md:text-sm">
+            Manage scores and the live leaderboard for the main display.
+          </p>
         </div>
-      </div>
+      </header>
 
-      <div className='w-[90%] flex flex-col items-center justify-center'>
-        <div className='text-white w-full p-2 m-1 rounded-xl flex flex-row items-center justify-between'>
-          <span className='flex flex-row items-center justify-between w-full'>
-            <h1 className='text-4xl font-bold'>College</h1>
-            <h1 className='text-4xl font-bold'>Score</h1>
-          </span>
-        </div>
-
-        {/* Display category error message if any */}
-        {categoryError && (
-          <div className="w-full bg-red-100 border border-red-400 text-red-700 px-4 py-3 mb-4 rounded">
-            <p>{categoryError}</p>
+      {/* Main layout */}
+      <main className="mx-auto flex max-w-6xl gap-6 px-4 py-4">
+        {/* Colleges + scores (left pane) */}
+        <section className="flex min-h-[320px] min-w-0 flex-[1.7] flex-col rounded border border-gray-300 bg-white">
+          <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-700">
+                Colleges
+              </p>
+              <p className="text-xs text-gray-500">{displayedColleges.length} colleges</p>
+            </div>
           </div>
-        )}
 
-        {/* Display leaderboard error message if any */}
-        {leaderboardError && (
-          <div className="w-full bg-red-100 border border-red-400 text-red-700 px-4 py-3 mb-4 rounded">
-            <p>{leaderboardError}</p>
+          <div className="space-y-3 border-b border-gray-200 px-4 py-2 text-xs">
+            {categoryError && (
+              <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-red-700">
+                {categoryError}
+              </div>
+            )}
+            {leaderboardError && (
+              <div className="rounded border border-yellow-300 bg-yellow-50 px-3 py-2 text-yellow-800">
+                {leaderboardError}
+              </div>
+            )}
           </div>
-        )}
 
-        {/* Single Column Layout with college list */}
-        <div className='w-full flex flex-col gap-1'>
-          {displayedColleges.map((college: College) => (
-            <div
-              className="bg-white border-2 border-gray-300 w-full px-2 py-1 rounded-xl flex flex-row items-center justify-between"
-              key={college.id}
-            >
-              <div className='flex flex-row items-center'>
-                {/* Checkbox for selecting college for leaderboard */}
-                <input
-                  type="checkbox"
-                  className="mr-2 h-5 w-5 rounded border-gray-300 cursor-pointer"
-                  checked={selectedColleges[String(college.id)] || false}
-                  disabled={college.score === 0}
-                  onChange={(e) => handleCollegeSelection(String(college.id), e.target.checked)}
-                />
-                
-                {/* Ranking dropdown on left side of college name */}
-                <select
-                  className={`border border-gray-300 rounded px-2 py-1 text-sm mr-3 ${
-                    !selectedColleges[String(college.id)] 
-                      ? 'opacity-50 cursor-not-allowed' 
-                      : 'cursor-pointer'
-                  }`}
-                  value={collegeRankings[String(college.id)] || ''}
-                  onChange={(e) => handleRankChange(String(college.id), e.target.value)}
-                  disabled={!selectedColleges[String(college.id)]}
+          <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+            {displayedColleges.map((college: College) => {
+              const id = String(college.id);
+
+              return (
+                <div
+                  key={college.id}
+                  className="group flex items-center justify-between gap-3 rounded border border-gray-300 bg-white px-3 py-2 text-sm hover:bg-gray-50"
                 >
-                  {getRankOptions().map(option => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-                <h2 className='font-bold text-sm'>{college.name}</h2>
-              </div>
-              <div className='flex flex-row items-center'>
-                <h2 className='font-bold mr-2'>{college.score}</h2>
-                <ScoreButton
-                  college={college}
-                  add={false}
-                  difficulty={difficulty}
-                  updateScore={updateScore}
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div
+                      className="min-w-0 cursor-grab active:cursor-grabbing"
+                      draggable
+                      onDragStart={(event) => handleCollegeDragStart(event, id)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex shrink-0 items-center rounded border border-gray-300 bg-gray-50 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-gray-700">
+                          {college.shorthand}
+                        </span>
+                        <h2 className="truncate text-sm font-semibold text-gray-900">
+                          {college.name}
+                        </h2>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="w-9 text-right font-mono text-sm text-gray-900">
+                      {college.score}
+                    </span>
+                    <ScoreButton
+                      college={college}
+                      add={false}
+                      difficulty={difficulty}
+                      updateScore={updateScore}
+                    />
+                    <ScoreButton
+                      college={college}
+                      add={true}
+                      difficulty={difficulty}
+                      updateScore={updateScore}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Clincher-specific controls hidden to simplify UI */}
+          </div>
+        </section>
+
+        {/* Right-side control + leaderboard preview (right pane) */}
+        <section className="flex min-w-[260px] max-w-sm flex-1 shrink-0 flex-col gap-4 rounded border border-gray-300 bg-white p-4">
+          {/* Mode dropdowns and utility actions */}
+          <div className="flex flex-col gap-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-700">
+              Settings
+            </p>
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1 text-xs text-gray-600">
+                <span className="uppercase tracking-[0.16em]">Category</span>
+                <Dropdown
+                  options={[{ value: 'Eliminations' }, { value: 'Finals' }]}
+                  preventChange={Object.keys(selectedColleges).length === 0}
+                  onChange={(selected) => {
+                    if (selected === 'Finals') {
+                      const selectedCollegeIds = Object.keys(selectedColleges).filter(
+                        (id) => selectedColleges[id]
+                      );
+
+                      if (selectedCollegeIds.length === 0) {
+                        setCategoryError(
+                          'You must select colleges using the checkboxes before switching to Finals mode.'
+                        );
+                        alert(
+                          'You must select colleges using the checkboxes before switching to Finals mode.'
+                        );
+
+                        return;
+                      }
+
+                      setCategoryError('');
+                      setCategory(selected);
+                      setDifficulty('Easy');
+                    } else if (selected === 'Eliminations') {
+                      setCategory(selected);
+                      setDifficulty('Easy');
+                      setCategoryError('');
+                    }
+                  }}
+                  key={category}
+                  initialValue={category}
                 />
-                <ScoreButton
-                  college={college}
-                  add={true}
-                  difficulty={difficulty}
-                  updateScore={updateScore}
+              </div>
+
+              <div className="flex flex-col gap-1 text-xs text-gray-600">
+                <span className="uppercase tracking-[0.16em]">Difficulty</span>
+                <Dropdown
+                  options={[
+                    { value: 'Easy' },
+                    { value: 'Average' },
+                    { value: 'Difficult' },
+                    { value: 'Clincher' },
+                    { value: 'Sudden Death' },
+                  ]}
+                  onChange={(selected) => {
+                    if (selected === 'Clincher' || selected === 'Sudden Death') {
+                      handleSwitchToClincher(selected);
+                    } else {
+                      exitClincherRound(selected);
+                      setDifficulty(selected);
+                    }
+                  }}
+                  key={difficulty}
+                  initialValue={difficulty}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1 text-xs text-gray-600">
+                <span className="uppercase tracking-[0.16em]">Division</span>
+                <Dropdown
+                  options={[{ value: 'Individual' }, { value: 'Teams' }]}
+                  onChange={async (selected) => {
+                    setDivision(selected);
+                    setDifficulty('Easy');
+                    setCategory('Eliminations');
+                    await performResetScores();
+                  }}
+                  initialValue={division}
                 />
               </div>
             </div>
-          ))}
-          
-          {/* Confirmation button for college selection mode */}
-          {inCollegeSelectionMode && (
-            <div className="w-full mt-4 mb-4">
-              <button
-                className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg w-full"
-                onClick={confirmClincherCollegeSelection}
-              >
-                Confirm Selected Colleges for {difficulty} Round
+
+            <div className="mt-1 flex flex-wrap gap-2">
+              <button className={buttonStyles} onClick={handleResetClick}>
+                Reset scores
+              </button>
+              <button className={buttonStyles} onClick={handleRefreshClick}>
+                Refresh app
               </button>
             </div>
-          )}
-          
-          {/* Re-select button for clincher/sudden death mode */}
-          {inClincherRound && !inCollegeSelectionMode && (
-            <div className="w-full mt-4 mb-4">
-              <button
-                className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg w-full"
-                onClick={reSelectColleges}
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-700">
+              Leaderboard controls
+            </p>
+            <p className="mt-1 text-xs text-gray-600">
+              Select and rank colleges, then display the {category === 'Finals' ? 'Top 3' : 'Top 5'}{' '}
+              on the main screen.
+            </p>
+          </div>
+
+          <div className="rounded border border-dashed border-gray-300 bg-gray-50 p-3 text-xs text-gray-700">
+            <ol className="list-decimal space-y-1 pl-4">
+              <li>Drag a college name from the left pane.</li>
+              <li>Drop it onto a bar to assign that rank.</li>
+              <li>
+                Click <span className="font-semibold text-sky-300">Display leaderboard</span> to send
+                the ranked colleges to the display.
+              </li>
+            </ol>
+          </div>
+
+          <div className="mt-1 flex flex-col gap-3">
+            <div className="flex items-center justify-between text-xs text-gray-600">
+              <span>Current leaderboard window</span>
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] font-medium uppercase tracking-[0.16em] ${
+                  showLeaderboard
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-gray-200 text-gray-700'
+                }`}
               >
-                Go Back
+                {showLeaderboard ? 'Open' : 'Hidden'}
+              </span>
+            </div>
+
+            <div className="mt-1 h-40 rounded border border-gray-300 bg-white px-3 py-3">
+              <LeaderboardBars
+                maxRank={maxPreviewRank}
+                colleges={displayedColleges}
+                collegeRankings={collegeRankings}
+                onDropToRank={handleBarDrop}
+              />
+            </div>
+
+            <div className="mt-4">
+              <button
+                className={`${buttonStyles} w-full justify-center`}
+                onClick={toggleLeaderboard}
+              >
+                {showLeaderboard ? 'Close leaderboard' : 'Display leaderboard'}
               </button>
             </div>
-          )}
-        </div>
+          </div>
+        </section>
+      </main>
       </div>
+    </div>
+  );
+}
+
+function LeaderboardBars({
+  maxRank,
+  colleges,
+  collegeRankings,
+  onDropToRank,
+}: {
+  maxRank: number;
+  colleges: College[];
+  collegeRankings: { [key: string]: string };
+  onDropToRank: (rankIndex: number, collegeId: string) => void;
+}) {
+  const slots = Array.from({ length: maxRank }, (_, index) => index);
+
+  const getCollegeForRank = (rankLabel: string): College | undefined => {
+    const entry = Object.entries(collegeRankings).find(
+      ([, rank]) => rank === rankLabel
+    );
+    if (!entry) return undefined;
+
+    const [collegeId] = entry;
+    return colleges.find((college) => String(college.id) === collegeId);
+  };
+
+  const handleDropOnSlot = (event: DragEvent<HTMLDivElement>, slotIndex: number) => {
+    event.preventDefault();
+    const collegeId = event.dataTransfer.getData('text/plain');
+    if (!collegeId) return;
+    onDropToRank(slotIndex, collegeId);
+  };
+
+  const handleDragOverSlot = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  };
+
+  return (
+    <div className="flex h-full items-end justify-between gap-2">
+      {slots.map((slotIndex) => {
+        const rankLabel = getRankLabelForIndex(slotIndex);
+        const assignedCollege = getCollegeForRank(rankLabel);
+        const numericRank = slotIndex + 1;
+        const heightPercent =
+          ((maxRank + 1 - numericRank) / maxRank) * 100;
+
+        return (
+          <div
+            key={rankLabel}
+            className="flex flex-1 flex-col items-center justify-end gap-1"
+          >
+            <div
+              className={`flex w-full items-end justify-center rounded-t-xl border border-dashed border-slate-700 bg-slate-950/80 transition-colors ${
+                assignedCollege
+                  ? 'border-sky-400 bg-linear-to-t from-sky-500 to-sky-300'
+                  : 'hover:border-sky-400/70 hover:bg-slate-900'
+              }`}
+              style={
+                assignedCollege
+                  ? { height: `${Math.max(24, heightPercent)}%` }
+                  : { height: '24%' }
+              }
+              onDragOver={handleDragOverSlot}
+              onDrop={(event) => handleDropOnSlot(event, slotIndex)}
+            >
+              {assignedCollege ? (
+                <span className="mb-2 text-xs font-semibold text-slate-950">
+                  {numericRank}
+                </span>
+              ) : (
+                <span className="px-2 text-[0.6rem] font-medium uppercase tracking-[0.16em] text-white">
+                  Drop here
+                </span>
+              )}
+            </div>
+            <span className="mt-1 text-[0.65rem] font-semibold uppercase tracking-[0.16em]">
+              {assignedCollege ? assignedCollege.shorthand : rankLabel}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
